@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Edge AI Benchmark</title>
+    <!-- Deliberately plain: no animations, web fonts or background work that would compete with the model for CPU/GPU time. -->
+    <style>
+      :root { color-scheme: light dark; font: 14px/1.5 system-ui, sans-serif; }
+      body { margin: 0 auto; max-width: 1100px; padding: 16px; }
+      h1 { font-size: 1.4rem; margin: 0 0 4px; }
+      p.note { margin: 0 0 16px; opacity: .75; }
+      fieldset { border: 1px solid #8884; border-radius: 6px; margin: 0 0 12px; padding: 8px 12px; }
+      legend { font-weight: 600; }
+      label { display: inline-flex; gap: 6px; align-items: center; margin: 2px 14px 2px 0; }
+      input[type=number], input[type=text] { width: 7em; }
+      input[type=text] { width: 16em; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+      button { padding: 6px 14px; }
+      #status { font-weight: 600; }
+      pre#log { background: #8881; border-radius: 6px; padding: 8px; height: 240px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+      .table-wrap { overflow-x: auto; }
+      table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
+      th, td { border-bottom: 1px solid #8883; padding: 4px 8px; text-align: right; white-space: nowrap; }
+      th:nth-child(-n+3), td:nth-child(-n+3) { text-align: left; }
+    </style>
+  </head>
+  <body>
+    <h1>Web Edge AI Benchmark</h1>
+    <p class="note">On-device inference measurement across browser ML backends. Keep this tab in the foreground, close other apps, and note power state while it runs. <a href="/">Back to the demo</a></p>
+
+    <form id="config">
+      <fieldset><legend>TensorFlow.js: backends</legend><div id="backends"></div></fieldset>
+      <fieldset><legend>TensorFlow.js: MobileNet models</legend><div id="models"></div></fieldset>
+      <fieldset><legend>ONNX Runtime Web: execution providers</legend><div id="ort-devices"></div></fieldset>
+      <fieldset><legend>ONNX Runtime Web: models (MobileNetV4, MobileViT, ResNet-50, ViT-B/16)</legend><div id="ort-models"></div></fieldset>
+      <fieldset><legend>ONNX Runtime Web: precision</legend><div id="ort-dtypes"></div>
+        <small>ViT-B/16 fp32 is a ~350 MB download. Untick it on phones or metered connections.</small></fieldset>
+      <fieldset><legend>Protocol</legend>
+        <label>Warm-up runs <input type="number" name="warmup" min="0" value="10" /></label>
+        <label>Timed runs <input type="number" name="runs" min="1" value="50" /></label>
+        <label>Repetitions <input type="number" name="reps" min="1" value="5" /></label>
+        <label>Cool-down (s) <input type="number" name="cooldown" min="0" value="10" /></label>
+        <label>Seed <input type="number" name="seed" value="20261017" /></label>
+        <br />
+        <label>Dataset manifest <input type="text" name="dataset" value="/dataset/manifest.csv" /></label>
+        <label>Max images <input type="number" name="datasetLimit" min="0" value="1000" /></label>
+        <label>Reference prob. vectors <input type="number" name="referenceImages" min="0" value="100" /></label>
+        <br />
+        <label>Self-hosted model dir <input type="text" name="modelBase" placeholder="e.g. /models" /></label>
+        <label><input type="checkbox" name="cacheModels" checked /> Cache weights in IndexedDB</label>
+        <label><input type="checkbox" name="isolate" checked /> Reload page between configurations</label>
+        <label><input type="checkbox" name="accuracyFirstRepOnly" checked /> Accuracy pass in first repetition only</label>
+      </fieldset>
+      <fieldset><legend>Run metadata</legend>
+        <label>Device label <input type="text" name="deviceLabel" placeholder="e.g. Pixel 8 / Chrome" /></label>
+        <label>Power <select name="power"><option value="">unspecified</option><option>plugged in</option><option>battery</option></select></label>
+      </fieldset>
+    </form>
+
+    <div class="actions">
+      <button id="start">Start benchmark</button>
+      <button id="stop" disabled>Stop</button>
+      <button id="upload">Send to collection server</button>
+      <button id="download-json">Download JSON</button>
+      <button id="download-csv">Download summary CSV</button>
+      <button id="clear-cache">Clear cached models</button>
+      <button id="reset">Discard results</button>
+    </div>
+    <p id="status">Idle</p>
+    <pre id="log" aria-live="polite"></pre>
+    <div class="table-wrap"><table id="results"></table></div>
+
+    <script type="module" src="/src/bench/main.js"></script>
+  </body>
+</html>
