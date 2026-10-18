@@ -49,7 +49,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("files", nargs="+")
     ap.add_argument("--out", default="paper/results_d1.json")
-    ap.add_argument("--figdir", default="paper")
+    ap.add_argument("--figdir", default="paper/figures")
     args = ap.parse_args()
     figdir = Path(args.figdir)
 
@@ -173,10 +173,14 @@ def main():
         bk = ["WASM", "WebGPU", "WebGL", "Plain JS"]
         w = 0.8 / len(bk)
         for k, b in enumerate(bk):
+            labelled = False
             for i, m in enumerate(models):
                 r = g[(g.model == m) & (g.backend.map(BACKEND_NAMES) == b)]
                 if len(r):
-                    ax.bar(i + k * w, r.median_ms.iloc[0], width=w, color=colors[b], label=b if i == 0 else None)
+                    v = r.median_ms.iloc[0]
+                    ax.bar(i + k * w, v, width=w, color=colors[b], label=None if labelled else b)
+                    ax.text(i + k * w, v * 1.12, f"{v:.0f}" if v >= 10 else f"{v:.1f}", ha="center", fontsize=5.2)
+                    labelled = True
         ax.set_xticks(np.arange(len(models)) + w * 1.5, [NAMES[m] for m in models], rotation=60, ha="right", fontsize=6.5)
         ax.set_yscale("log")
         ax.set_title(browser, fontsize=8)
@@ -191,6 +195,7 @@ def main():
     fig.legend(handles, labels, loc="upper center", ncols=4, fontsize=7, frameon=False)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     fig.savefig(figdir / "fig4_rq1_latency.png", dpi=220)
+    (figdir / "fig4_rq1_latency.preliminary.txt").unlink(missing_ok=True)  # a real campaign run supersedes the preliminary figure
     plt.close(fig)
 
     # Figure: accuracy-latency Pareto plot (first browser), all models and precisions
@@ -224,6 +229,7 @@ def main():
     ax.legend(fontsize=7)
     fig.tight_layout()
     fig.savefig(figdir / "fig5_pareto.png", dpi=220)
+    (figdir / "fig5_pareto.preliminary.txt").unlink(missing_ok=True)
     plt.close(fig)
 
     Path(args.out).write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
