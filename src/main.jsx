@@ -133,15 +133,19 @@ function loadImageModel() {
 //     against 57.5% for the previous MobileNetV2);
 //  2. if ViT puts at least BIRD_ROUTE of its probability on ImageNet's 59 bird classes, the CLIP bird
 //     expert (127 names) is asked too;
-//  3. CLIP's answer replaces ViT's only when it names a species ImageNet lacks (kingfisher, myna, pigeon…)
-//     with at least CLIP_ACCEPT confidence. For ImageNet's own species ViT is more accurate (81.9% vs 62.5%).
+//  3. CLIP's answer replaces ViT's only when ViT itself is unsure (top answer below VIT_SURE) and CLIP names
+//     a species ImageNet lacks (kingfisher, myna, pigeon…) with at least CLIP_ACCEPT confidence.
+//     Without the VIT_SURE condition CLIP overrode confident, correct ViT answers (e.g. hornbill 99% ->
+//     "large-billed crow") and bird accuracy fell from 81.9% to 73.6% on our 72 bird photos; with it, the
+//     combination keeps 81.9% there and still names species ViT cannot (kingfisher: ViT "jacamar" 54%).
 // Hidden overrides for measurement: ?model=accurate | birds | fast, ?mirror=1.
 const urlParams = new URLSearchParams(location.search)
 const ENGINE = ['accurate', 'birds', 'fast'].includes(urlParams.get('model')) ? urlParams.get('model') : 'auto'
 const MIRROR = urlParams.get('mirror') === '1'
 const LOW_CONFIDENCE = 30
 const BIRD_ROUTE = 0.5
-const CLIP_ACCEPT = 0.5
+const VIT_SURE = 0.8
+const CLIP_ACCEPT = 0.6
 
 let accurateModule
 let birdModule
@@ -185,7 +189,7 @@ async function classifyWith(engine, file) {
   const { classifyAccurate } = await loadAccurate()
   const v = await classifyAccurate(file, { mirror: MIRROR })
   const vit = { ms: v.ms, note: `ViT-B/16 ${v.plan.dtype} / ${v.plan.device}${v.mirror ? ' · mirror-averaged' : ''}`, outputs: toOutputs(v.top) }
-  if (engine !== 'auto' || v.birdMass < BIRD_ROUTE) return vit
+  if (engine !== 'auto' || v.birdMass < BIRD_ROUTE || v.top[0].probability >= VIT_SURE) return vit
   try {
     const { r, usable } = await birdAnswer(file)
     if (!usable) return { ...vit, ms: vit.ms + r.ms, note: `${vit.note} · bird expert agreed` }
