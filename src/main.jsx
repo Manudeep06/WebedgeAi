@@ -128,6 +128,73 @@ function loadImageModel() {
   return modelPromise
 }
 
+// One "Image" option that picks the model automatically:
+//  1. every photo goes to ViT-B/16 (ONNX Runtime Web; 66.0% top-1 end to end on 200 ImageNetV2 photos,
+//     against 57.5% for the previous MobileNetV2);
+//  2. if ViT puts at least BIRD_ROUTE of its probability on ImageNet's 59 bird classes, the CLIP bird
+//     expert (127 names) is asked too;
+//  3. CLIP's answer replaces ViT's only when it names a species ImageNet lacks (kingfisher, myna, pigeon…)
+//     with at least CLIP_ACCEPT confidence. For ImageNet's own species ViT is more accurate (81.9% vs 62.5%).
+// Hidden overrides for measurement: ?model=accurate | birds | fast, ?mirror=1.
+const urlParams = new URLSearchParams(location.search)
+const ENGINE = ['accurate', 'birds', 'fast'].includes(urlParams.get('model')) ? urlParams.get('model') : 'auto'
+const MIRROR = urlParams.get('mirror') === '1'
+const LOW_CONFIDENCE = 30
+const BIRD_ROUTE = 0.5
+const CLIP_ACCEPT = 0.5
+
+let accurateModule
+let birdModule
+const loadAccurate = () => (accurateModule ??= import('./accurate.js'))
+const loadBirds = () => (birdModule ??= Promise.all([import('./birds-clip.js'), import('./birds-labels.js')])
+  .then(([clip, labels]) => ({ ...clip, ...labels })))
+const capitalise = (s) => s[0].toUpperCase() + s.slice(1)
+const toOutputs = (top) => top.map((p, i) => ({ label: capitalise(p.name), confidence: Math.round(p.probability * 100), color: colors[i] }))
+
+async function loadEngine(engine) {
+  if (engine === 'fast') {
+    const { backend } = await loadImageModel()
+    return `${backend.toUpperCase()} ready`
+  }
+  if (engine === 'birds') {
+    const { loadBirdModel } = await loadBirds()
+    const { plan } = await loadBirdModel()
+    return `CLIP · ${plan.device.toUpperCase()} ready`
+  }
+  const { loadAccurateModel } = await loadAccurate()
+  const { plan } = await loadAccurateModel()
+  // Fetch the bird expert in the background, so the first bird photo does not wait for its download.
+  if (engine === 'auto') loadBirds().then((m) => m.loadBirdModel()).catch(() => {})
+  return `${plan.device.toUpperCase()} ready`
+}
+
+async function birdAnswer(file) {
+  const { classifyBird, IMAGENET_COVERED, NOT_BIRD_LABEL } = await loadBirds()
+  const r = await classifyBird(file)
+  const best = r.top[0]
+  const usable = best.name !== NOT_BIRD_LABEL && !IMAGENET_COVERED.has(best.name) && best.probability >= CLIP_ACCEPT
+  return { r, usable }
+}
+
+async function classifyWith(engine, file) {
+  if (engine === 'fast') return classifyImage(file)
+  if (engine === 'birds') {
+    const { r } = await birdAnswer(file)
+    return { ms: r.ms, note: `CLIP ViT-B/32 ${r.plan.dtype} / ${r.plan.device} · ${r.birds} bird names`, outputs: toOutputs(r.top) }
+  }
+  const { classifyAccurate } = await loadAccurate()
+  const v = await classifyAccurate(file, { mirror: MIRROR })
+  const vit = { ms: v.ms, note: `ViT-B/16 ${v.plan.dtype} / ${v.plan.device}${v.mirror ? ' · mirror-averaged' : ''}`, outputs: toOutputs(v.top) }
+  if (engine !== 'auto' || v.birdMass < BIRD_ROUTE) return vit
+  try {
+    const { r, usable } = await birdAnswer(file)
+    if (!usable) return { ...vit, ms: vit.ms + r.ms, note: `${vit.note} · bird expert agreed` }
+    return { ms: vit.ms + r.ms, note: `Bird expert: CLIP ViT-B/32 ${r.plan.dtype} / ${r.plan.device} (species not in ImageNet)`, outputs: toOutputs(r.top) }
+  } catch {
+    return vit // the bird expert is an extra; never fail the main answer because of it
+  }
+}
+
 async function classifyImage(file) {
   const { model, backend } = await loadImageModel()
   const url = URL.createObjectURL(file)
@@ -151,7 +218,7 @@ async function classifyImage(file) {
 }
 
 function App() {
-  const [mode, setMode] = useState('image')
+  const [mode] = useState('image')
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState(null)
   const [file, setFile] = useState(null)
@@ -167,9 +234,12 @@ function App() {
   const statusTone = /ready/i.test(modelStatus) ? 'ok' : /unavailable/i.test(modelStatus) ? 'bad' : 'loading'
 
   useEffect(() => {
-    loadImageModel()
-      .then(({ backend }) => setModelStatus(`${backend.toUpperCase()} ready`))
-      .catch(() => setModelStatus('Model unavailable'))
+    let current = true
+    setModelStatus('Loading model')
+    loadEngine(ENGINE)
+      .then((status) => { if (current) setModelStatus(status) })
+      .catch(() => { if (current) setModelStatus('Model unavailable') })
+    return () => { current = false }
   }, [])
 
   useEffect(() => {
@@ -182,15 +252,6 @@ function App() {
     return () => URL.revokeObjectURL(url)
   }, [file])
 
-  function changeMode(id) {
-    runId.current++
-    setMode(id)
-    setFile(null)
-    setText('')
-    setError('')
-    setRunning(false)
-    setResult(null)
-  }
   function acceptFile(selected) {
     if (!selected) return
     const [type] = currentMode.accept.split(',').at(-1).split('/')
@@ -216,7 +277,7 @@ function App() {
     setRunning(true)
     setResult(null)
     const id = ++runId.current
-    classifyImage(file)
+    classifyWith(ENGINE, file)
       .then((next) => { if (id === runId.current) setResult(next) })
       .catch(() => { if (id === runId.current) setError('Could not run the model. Check your connection or try another image.') })
       .finally(() => { if (id === runId.current) setRunning(false) })
@@ -271,7 +332,7 @@ function App() {
           <div className="input-panel panel glow-card">
             <div className="panel-top"><span className="panel-kicker">01 / Input</span><span className="lock">Private by default</span></div>
             <div className="mode-tabs">
-              {modes.map((item) => <button key={item.id} className={mode === item.id ? 'active' : ''} onClick={() => changeMode(item.id)}>{item.label}</button>)}
+              {modes.map((item) => <button key={item.id} className={mode === item.id ? 'active' : ''}>{item.label}</button>)}
             </div>
             <div className={`drop-zone ${dragging ? 'dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={handleDrop}>
               {preview ? (
@@ -308,6 +369,9 @@ function App() {
                   <div className="result-badge">{result.outputs[0].confidence}%</div>
                   <div><span>Top prediction</span><h3>{result.outputs[0].label}</h3></div>
                 </div>
+                {result.outputs[0].confidence < LOW_CONFIDENCE && (
+                  <p className="low-confidence" role="status">Not sure: the model is under {LOW_CONFIDENCE}% confident. Try a sharper, upright photo where the object fills most of the frame.</p>
+                )}
                 {result.outputs.map((output) => (
                   <div className="score-row" key={output.label}>
                     <span>{output.label}</span>

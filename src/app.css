@@ -205,6 +205,7 @@ h2 { font-size: clamp(40px, 5.6vw, 88px); font-weight: 700; line-height: .98; }
 .result-badge { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; font: 900 clamp(56px, 6vw, 92px)/1 var(--display); letter-spacing: -.05em; }
 .result-summary span { color: var(--muted); font: 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
 .result-summary h3 { margin-top: 6px; font-size: clamp(24px, 2.4vw, 34px); font-weight: 700; }
+.low-confidence { margin: 0 0 14px; padding: 10px 14px; border: 1px solid rgba(255, 196, 0, .35); border-radius: 10px; background: rgba(255, 196, 0, .08); color: #ffd666; font: 12px/1.5 var(--mono); }
 .score-row { display: grid; grid-template-columns: minmax(90px, 1fr) 2fr 48px; align-items: center; gap: 16px; padding: 14px 0; font-size: 14px; }
 .score-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .score-row b { font: 500 13px var(--mono); text-align: right; }
